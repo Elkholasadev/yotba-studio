@@ -26,19 +26,21 @@ export async function GET() {
       ]) : [],
       campaigns.length ? NotificationCampaignDelivery.aggregate([
         { $match: { campaignId: { $in: campaigns.map(item => item._id) } } },
-        { $group: { _id: { campaignId: '$campaignId', status: '$status' }, count: { $sum: 1 } } },
+        { $project: { campaignId: 1, status: 1, acceptedDeviceCount: { $size: { $ifNull: ['$deliveredDeviceIds', []] } }, hasPendingReceipt: { $and: [{ $eq: ['$receiptsChecked', false] }, { $gt: [{ $size: { $ifNull: ['$pushReceipts', []] } }, 0] }] } } },
+        { $group: {
+          _id: '$campaignId',
+          failedCount: { $sum: { $cond: [{ $eq: ['$status', 'FAILED'] }, 1, 0] } },
+          skippedCount: { $sum: { $cond: [{ $eq: ['$status', 'SKIPPED'] }, 1, 0] } },
+          inboxOnlyCount: { $sum: { $cond: [{ $and: [{ $eq: ['$status', 'SENT'] }, { $eq: ['$acceptedDeviceCount', 0] }] }, 1, 0] } },
+          pushAcceptedDeviceCount: { $sum: '$acceptedDeviceCount' },
+          pendingReceiptCount: { $sum: { $cond: ['$hasPendingReceipt', 1, 0] } },
+        } },
       ]) : [],
     ]);
     const inboxByCampaign = new Map(inboxCounts.map((item: any) => [String(item._id), item.count]));
-    const statsByCampaign = new Map<string, { failedCount: number; skippedCount: number }>();
-    for (const stat of deliveryStats) {
-      const id = String(stat._id.campaignId);
-      const value = statsByCampaign.get(id) || { failedCount: 0, skippedCount: 0 };
-      if (stat._id.status === 'FAILED') value.failedCount = stat.count;
-      if (stat._id.status === 'SKIPPED') value.skippedCount = stat.count;
-      statsByCampaign.set(id, value);
-    }
-    return jsonOk({ campaigns: campaigns.map(item => ({ ...item, inboxCount: inboxByCampaign.get(String(item._id)) || 0, ...(statsByCampaign.get(String(item._id)) || { failedCount: 0, skippedCount: 0 }), _id: String(item._id), seriesId: item.seriesId ? String(item.seriesId) : null })), series: series.map(item => ({ id: String(item._id), title: item.title })) });
+    const statsByCampaign = new Map(deliveryStats.map((item: any) => [String(item._id), item]));
+    const emptyStats = { failedCount: 0, skippedCount: 0, inboxOnlyCount: 0, pushAcceptedDeviceCount: 0, pendingReceiptCount: 0 };
+    return jsonOk({ campaigns: campaigns.map(item => ({ ...item, inboxCount: inboxByCampaign.get(String(item._id)) || 0, ...emptyStats, ...(statsByCampaign.get(String(item._id)) || {}), _id: String(item._id), seriesId: item.seriesId ? String(item.seriesId) : null })), series: series.map(item => ({ id: String(item._id), title: item.title })) });
   } catch { return jsonError('تعذر تحميل الحملات', 503); }
 }
 
