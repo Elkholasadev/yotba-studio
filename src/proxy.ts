@@ -11,6 +11,7 @@ export function proxy(request: NextRequest) {
     pathname.startsWith('/uploads') ||
     pathname.startsWith('/api/v1/media') ||
     pathname === '/favicon.ico' ||
+    pathname === '/site.webmanifest' ||
     pathname === '/login' ||
     pathname === '/admin/login' ||
     pathname === '/api/v1/admin/auth/login' ||
