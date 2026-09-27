@@ -1,0 +1,21 @@
+{
+  "id": "/",
+  "name": "استوديو يُتبع — لوحة التحكم",
+  "short_name": "استوديو يُتبع",
+  "description": "لوحة إدارة منصة يُتبع والمحتوى الصوتي",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0D0D11",
+  "theme_color": "#0D0D11",
+  "dir": "rtl",
+  "lang": "ar",
+  "icons": [
+    {
+      "src": "/branding/install-icon.png",
+      "sizes": "1254x1254",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

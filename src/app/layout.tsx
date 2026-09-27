@@ -26,9 +26,11 @@ const tajawal = Tajawal({
 export const metadata: Metadata = {
   title: 'استوديو يُتبع... | لوحة التحكم والإدارة المركزية',
   description: 'منظومة إدارة المحتوى والبث والإنتاج الصوتي لمنصة يُتبع...',
+  manifest: '/site.webmanifest',
+  appleWebApp: { capable: true, title: 'استوديو يُتبع', statusBarStyle: 'black-translucent' },
   icons: {
     icon: '/branding/icon.svg',
-    apple: '/branding/icon.svg',
+    apple: [{ url: '/branding/install-icon.png', sizes: '1254x1254', type: 'image/png' }],
   },
 };
 
