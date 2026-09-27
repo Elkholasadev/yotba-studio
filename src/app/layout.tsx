@@ -29,7 +29,7 @@ export const metadata: Metadata = {
   manifest: '/site.webmanifest',
   appleWebApp: { capable: true, title: 'استوديو يُتبع', statusBarStyle: 'black-translucent' },
   icons: {
-    icon: '/branding/icon.svg',
+    icon: [{ url: '/branding/favicon.webp', sizes: '192x192', type: 'image/webp' }],
     apple: [{ url: '/branding/install-icon.png', sizes: '1254x1254', type: 'image/png' }],
   },
 };

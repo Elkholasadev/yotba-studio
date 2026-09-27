@@ -4,6 +4,7 @@ import { FormEvent, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ShieldCheck, ArrowUpRight, Loader2, Eye, EyeOff } from 'lucide-react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { resolvePublicPlatformUrl } from '@/lib/config/public-platform';
 import { safeAdminReturnTo } from '@/lib/admin/access';
 
@@ -138,11 +139,9 @@ export default function AdminLoginPage() {
       <div className="w-full max-w-md space-y-6">
         {/* Brand Header */}
         <div className="text-center space-y-2">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-crimson shadow-halo mb-2">
-            <span className="text-white font-black font-display text-2xl">يـ</span>
-          </div>
+          <Image src="/branding/logo_transparent.png?v=20260927-wordmark" alt="يُتبع" width={144} height={96} priority className="mx-auto h-24 w-36 object-contain" />
           <h1 className="text-2xl font-black font-display text-editorial-ivory">
-            استوديو <span className="text-crimson">يُتبع...</span>
+            الاستوديو
           </h1>
           <p className="text-xs text-editorial-secondary">
             بوابة التحكم والإدارة المركزية لمنصة الإنتاج الصوتي

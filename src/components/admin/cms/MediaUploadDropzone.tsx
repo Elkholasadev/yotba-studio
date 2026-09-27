@@ -548,7 +548,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
             {isImageCategory && (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={previewSource || '/branding/icon.svg'}
+                src={previewSource || '/branding/install-icon.png'}
                 alt="معاينة البوستر"
                 className="w-16 h-16 object-contain rounded-lg border border-border-subtle bg-black shrink-0 shadow-sm"
                 onError={(e) => {

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import {
   LayoutDashboard,
@@ -361,12 +362,9 @@ export const AdminDashboardView: React.FC<{ adminRole: string }> = ({ adminRole 
             href="/"
             className="flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson rounded-lg"
           >
-            <span className="w-8 h-8 rounded-lg bg-crimson flex items-center justify-center text-white font-black font-display text-base shadow-halo">
-              يـ
-            </span>
+            <Image src="/branding/logo_transparent.png?v=20260927-wordmark" alt="يُتبع" width={84} height={56} priority className="h-14 w-[84px] object-contain" />
             <div>
               <h1 className="text-sm font-black font-display text-editorial-ivory leading-tight">
-                يُتبع...{' '}
                 <span className="text-crimson font-ui text-[11px] font-bold">
                   الاستوديو
                 </span>
