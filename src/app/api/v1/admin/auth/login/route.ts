@@ -3,6 +3,7 @@ import { AdminUser } from '@/lib/db/models';
 import { connectDB } from '@/lib/db/connect';
 import { setAuthCookie, signSessionToken, verifyPassword } from '@/lib/auth';
 import { normalizeEnv } from '@/lib/config/runtime';
+import { allowAdminLoginAttempt } from '@/lib/auth/admin-login-rate-limit';
 
 /**
  * ترويسات منع التخزين المؤقت للاستجابات الحساسة
@@ -267,6 +268,20 @@ export async function POST(request: Request) {
           'Retry-After': String(accountLimitCheck.retryAfter),
         },
       }
+    );
+  }
+
+  try {
+    if (!await allowAdminLoginAttempt(clientIp, normalizedEmail)) {
+      return NextResponse.json(
+        { error: 'تم تجاوز عدد المحاولات المسموح بها. يُرجى المحاولة لاحقاً.' },
+        { status: 429, headers: { ...NO_STORE_HEADERS, 'Retry-After': '900' } }
+      );
+    }
+  } catch {
+    return NextResponse.json(
+      { error: 'تسجيل دخول الإدارة غير متاح حالياً' },
+      { status: 503, headers: NO_STORE_HEADERS }
     );
   }
 
