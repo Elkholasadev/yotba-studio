@@ -26,6 +26,7 @@ import {
   KeyRound,
   LogOut,
   Tags,
+  BellRing,
 } from 'lucide-react';
 
 import type { AdminSeriesDTO } from './cms/shared';
@@ -41,6 +42,7 @@ import { AdminSettingsView } from './views/AdminSettingsView';
 import { UsersPanel } from './operations/UsersPanel';
 import { EntitlementsPanel } from './operations/EntitlementsPanel';
 import { HomepagePanel } from './operations/HomepagePanel';
+import { NotificationCampaignsPanel } from './operations/NotificationCampaignsPanel';
 import { TeamPanel } from './operations/TeamPanel';
 import { canAccessAdminSection } from '@/lib/admin/access';
 import { AdminUserDTO } from './operations/types';
@@ -59,7 +61,8 @@ export type AdminSection =
   | 'homepage'
   | 'settings'
   | 'team'
-  | 'categories';
+  | 'categories'
+  | 'notifications';
 
 interface FunnelStep {
   stage: string;
@@ -118,6 +121,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: 'users', label: 'المستخدمون', icon: Users },
       { id: 'comments', label: 'التعليقات', icon: MessageSquare },
       { id: 'homepage', label: 'الصفحة الرئيسية', icon: LayoutGrid },
+      { id: 'notifications', label: 'الإشعارات', icon: BellRing },
     ],
   },
   {
@@ -811,6 +815,8 @@ export const AdminDashboardView: React.FC<{ adminRole: string }> = ({ adminRole 
                 {activeSection === 'settings' && (
                   <AdminSettingsView onNotice={showNotice} />
                 )}
+
+                {activeSection === 'notifications' && <NotificationCampaignsPanel onNotice={showNotice} />}
                 {activeSection === 'team' && adminRole === 'SUPER_ADMIN' && (
                   <TeamPanel onNotice={showNotice} />
                 )}

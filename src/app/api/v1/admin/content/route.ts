@@ -10,6 +10,10 @@ import { after } from 'next/server';
 import { isValidObjectId, Types } from 'mongoose';
 import { getCurrentAdmin } from '@/lib/auth';
 import { connectDB } from '@/lib/db/connect';
+import { isContentPlayable, isSeasonAvailable, isSeriesPublished } from '@/lib/notifications/content-publication';
+import { ContentNotificationEvent } from '@/lib/notifications/content-event-model';
+import { enqueueContentEvent } from '@/lib/notifications/content-event-write';
+import { contentEventAvailableAt } from '@/lib/notifications/content-event-policy';
 import {
   Series,
   Season,
@@ -127,6 +131,13 @@ async function parseJsonBody(
 
 function checkAdminRole(admin: { role: string }) {
   return CONTENT_ROLES.includes(admin.role);
+}
+
+function parsePublicationDate(value: unknown): { valid: true; date: Date | null } | { valid: false } {
+  if (value === null || value === '') return { valid: true, date: null };
+  if (typeof value !== 'string' || value.length > 64) return { valid: false };
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? { valid: true, date } : { valid: false };
 }
 
 // تمنع إرسال ID مزيف، وتتحقق أن كل التصنيفات المختارة موجودة فعلاً في MongoDB.
@@ -532,6 +543,13 @@ export async function POST(req: Request) {
         body.featured === undefined ? false : body.featured === true;
       const isPublished =
         body.published === undefined ? true : body.published === true;
+      if (body.publishedAt !== undefined && body.published !== undefined)
+        return jsonError('استخدم publishedAt أو published فقط، وليس كليهما');
+      const requestedPublication = body.publishedAt === undefined
+        ? null
+        : parsePublicationDate(body.publishedAt);
+      if (requestedPublication && !requestedPublication.valid)
+        return jsonError('موعد النشر غير صالح');
 
       if (body.trailerUrl != null && body.trailerUrl !== '' && (typeof body.trailerUrl !== 'string' || !isSafeMediaUrl(body.trailerUrl.trim()) || /\/(?:audio|episodes)\//.test(body.trailerUrl)))
         return jsonError('ارفع لمحة صوتية عامة مستقلة عن ملف الحلقة المحمي');
@@ -540,7 +558,7 @@ export async function POST(req: Request) {
       if (existing)
         return jsonError('المعرّف (slug) مستخدم مسبقاً لمسلسل آخر', 409);
 
-      const series = await Series.create({
+      const seriesInput = {
         title,
         slug,
         posterUrl: mediaUrlFromStorageKey(
@@ -566,8 +584,20 @@ export async function POST(req: Request) {
           typeof body.shareVideoUrl === 'string' && body.shareVideoUrl.trim()
             ? body.shareVideoUrl.trim()
             : undefined,
-        publishedAt: isPublished ? new Date() : null,
-      });
+        publishedAt: requestedPublication ? requestedPublication.date : isPublished ? new Date() : null,
+      };
+      let series: any;
+      if (seriesInput.publishedAt) {
+        await ContentNotificationEvent.init();
+        const session = await conn.startSession();
+        try {
+          await session.withTransaction(async () => {
+            const [created] = await Series.create([seriesInput], { session });
+            series = created;
+            await enqueueContentEvent(session, 'SERIES_PUBLISHED', { entityId: created._id, seriesId: created._id }, contentEventAvailableAt(created.publishedAt));
+          });
+        } finally { await session.endSession(); }
+      } else series = await Series.create(seriesInput);
 
       await writeAudit({
         adminUserId: admin.userId,
@@ -621,6 +651,11 @@ export async function POST(req: Request) {
       ) {
         return jsonError('حالة الإصدار غير صالحة');
       }
+      const requestedSeasonPublication = body.publishedAt === undefined
+        ? null
+        : parsePublicationDate(body.publishedAt);
+      if (requestedSeasonPublication && !requestedSeasonPublication.valid)
+        return jsonError('موعد نشر الموسم غير صالح');
 
       const price = body.price === undefined ? 0.5 : body.price;
       if (!isBoundedNumber(price, 0.01, 10000))
@@ -636,7 +671,7 @@ export async function POST(req: Request) {
       });
       if (duplicate) return jsonError('يوجد موسم بنفس الرقم لهذا المسلسل', 409);
 
-      const season = await Season.create({
+      const seasonInput = {
         seriesId: series._id,
         seasonNumber: body.seasonNumber,
         title,
@@ -644,7 +679,20 @@ export async function POST(req: Request) {
         price,
         currency,
         releaseStatus,
-      });
+        ...(requestedSeasonPublication ? { publishedAt: requestedSeasonPublication.date } : {}),
+      };
+      let season: any;
+      if (releaseStatus === 'AVAILABLE' || Boolean(requestedSeasonPublication?.date)) {
+        await ContentNotificationEvent.init();
+        const session = await conn.startSession();
+        try {
+          await session.withTransaction(async () => {
+            const [created] = await Season.create([seasonInput], { session });
+            season = created;
+            await enqueueContentEvent(session, 'SEASON_PUBLISHED', { entityId: created._id, seriesId: series._id, seasonId: created._id }, contentEventAvailableAt(series.publishedAt, created.publishedAt));
+          });
+        } finally { await session.endSession(); }
+      } else season = await Season.create(seasonInput);
       await syncSeriesCounters(series._id.toString());
 
       await writeAudit({
@@ -777,7 +825,7 @@ export async function POST(req: Request) {
         audioPublicUrl = body.audioPublicUrl.trim();
       }
 
-      const episode = await Episode.create({
+      const episodeInput = {
         seriesId: season.seriesId,
         seasonId: season._id,
         seasonNumber: season.seasonNumber,
@@ -794,7 +842,20 @@ export async function POST(req: Request) {
             : undefined,
         audioStorageKey,
         audioPublicUrl,
-      });
+      };
+      const series = await Series.findById(season.seriesId).select('_id publishedAt').lean<any>();
+      let episode: any;
+      if (series) {
+        await ContentNotificationEvent.init();
+        const session = await conn.startSession();
+        try {
+          await session.withTransaction(async () => {
+            const [created] = await Episode.create([episodeInput], { session });
+            episode = created;
+            await enqueueContentEvent(session, 'EPISODE_PUBLISHED', { entityId: created._id, seriesId: created.seriesId, seasonId: created.seasonId, episodeId: created._id }, contentEventAvailableAt(series.publishedAt, season.publishedAt, created.publishDate));
+          });
+        } finally { await session.endSession(); }
+      } else episode = await Episode.create(episodeInput);
       await syncSeasonEpisodesCount(season._id.toString());
       await syncSeriesCounters(season.seriesId.toString());
 
@@ -892,6 +953,7 @@ export async function PATCH(req: Request) {
       const series = await Series.findById(seriesId);
       if (!series) return jsonError('المسلسل غير موجود', 404);
 
+      const wasPublished = isSeriesPublished(series);
       const before = seriesSummary(series);
       const updates: Record<string, unknown> = {};
 
@@ -1031,6 +1093,8 @@ export async function PATCH(req: Request) {
       }
 
       let publishAction: 'PUBLISH_SERIES' | 'UNPUBLISH_SERIES' | null = null;
+      if (body.publishedAt !== undefined && body.published !== undefined)
+        return jsonError('استخدم publishedAt أو published فقط، وليس كليهما');
       if (body.published !== undefined) {
         if (typeof body.published !== 'boolean')
           return jsonError('قيمة النشر غير صالحة');
@@ -1038,6 +1102,12 @@ export async function PATCH(req: Request) {
           ? series.publishedAt || new Date()
           : null;
         publishAction = body.published ? 'PUBLISH_SERIES' : 'UNPUBLISH_SERIES';
+      }
+      if (body.publishedAt !== undefined) {
+        const parsed = parsePublicationDate(body.publishedAt);
+        if (!parsed.valid) return jsonError('موعد النشر غير صالح');
+        updates.publishedAt = parsed.date;
+        publishAction = parsed.date ? 'PUBLISH_SERIES' : 'UNPUBLISH_SERIES';
       }
 
       if (Object.keys(updates).length === 0)
@@ -1058,10 +1128,30 @@ export async function PATCH(req: Request) {
         mediaUpdates,
       );
 
+      const previousPublishedAt = series.publishedAt ? new Date(series.publishedAt).getTime() : null;
       for (const [key, value] of Object.entries(updates)) {
         (series as any)[key] = value;
       }
-      await series.save();
+      const publicationDateChanged = updates.publishedAt !== undefined
+        && previousPublishedAt !== (series.publishedAt ? new Date(series.publishedAt).getTime() : null);
+      if (publicationDateChanged) {
+        await ContentNotificationEvent.init();
+        const session = await conn.startSession();
+        try {
+          await session.withTransaction(async () => {
+            await series.save({ session });
+            const existingPublicationEvent = await ContentNotificationEvent.exists({ entityId: series._id, type: 'SERIES_PUBLISHED' }).session(session);
+            if (series.publishedAt && (!wasPublished || existingPublicationEvent)) {
+              await enqueueContentEvent(session, 'SERIES_PUBLISHED', { entityId: series._id, seriesId: series._id }, contentEventAvailableAt(series.publishedAt));
+            }
+            if (series.publishedAt) {
+              await ContentNotificationEvent.updateMany({ seriesId: series._id, entityId: { $ne: series._id }, state: 'PENDING', campaignId: null }, { $set: {
+                availableAt: contentEventAvailableAt(series.publishedAt), nextAttemptAt: new Date(), errorCode: null, leaseId: null, leaseExpiresAt: null,
+              } }, { session });
+            }
+          });
+        } finally { await session.endSession(); }
+      } else await series.save();
       notifyContentChanged();
 
       const storageCleanup = await cleanupContentMedia(replacedMediaKeys);
@@ -1094,6 +1184,9 @@ export async function PATCH(req: Request) {
         return jsonError('معرّف الموسم غير صالح');
       const season = await Season.findById(seasonId);
       if (!season) return jsonError('الموسم غير موجود', 404);
+      const parentSeries = await Series.findById(season.seriesId).select('_id publishedAt').lean<any>();
+      if (!parentSeries) return jsonError('المسلسل المرتبط بالموسم غير موجود', 404);
+      const wasAvailable = isSeasonAvailable(season);
 
       const before = {
         seasonNumber: season.seasonNumber,
@@ -1102,6 +1195,7 @@ export async function PATCH(req: Request) {
         price: season.price,
         currency: season.currency,
         releaseStatus: season.releaseStatus,
+        publishedAt: season.publishedAt,
       };
       const updates: Record<string, unknown> = {};
 
@@ -1137,6 +1231,11 @@ export async function PATCH(req: Request) {
         }
         updates.releaseStatus = body.releaseStatus;
       }
+      if (body.publishedAt !== undefined) {
+        const parsed = parsePublicationDate(body.publishedAt);
+        if (!parsed.valid) return jsonError('موعد نشر الموسم غير صالح');
+        updates.publishedAt = parsed.date;
+      }
       if (body.price !== undefined) {
         if (!isBoundedNumber(body.price, 0.01, 10000))
           return jsonError('السعر يجب أن يكون بين 0.01 و 10000');
@@ -1167,10 +1266,31 @@ export async function PATCH(req: Request) {
           return jsonError('يوجد موسم بنفس الرقم لهذا المسلسل', 409);
       }
 
+      const previousPublishedAt = season.publishedAt ? new Date(season.publishedAt).getTime() : null;
       for (const [key, value] of Object.entries(updates)) {
         (season as any)[key] = value;
       }
-      await season.save();
+      const becameAvailable = !wasAvailable && isSeasonAvailable(season);
+      const publicationDateChanged = updates.publishedAt !== undefined
+        && previousPublishedAt !== (season.publishedAt ? new Date(season.publishedAt).getTime() : null);
+      if (becameAvailable || publicationDateChanged) {
+        await ContentNotificationEvent.init();
+        const session = await conn.startSession();
+        try {
+          await session.withTransaction(async () => {
+            await season.save({ session });
+            const existingPublicationEvent = await ContentNotificationEvent.exists({ entityId: season._id, type: 'SEASON_PUBLISHED' }).session(session);
+            if ((season.publishedAt || isSeasonAvailable(season)) && (!wasAvailable || existingPublicationEvent)) {
+              await enqueueContentEvent(session, 'SEASON_PUBLISHED', { entityId: season._id, seriesId: season.seriesId, seasonId: season._id }, contentEventAvailableAt(parentSeries.publishedAt, season.publishedAt));
+            }
+            if (season.publishedAt || becameAvailable) {
+              await ContentNotificationEvent.updateMany({ seasonId: season._id, entityId: { $ne: season._id }, state: 'PENDING', campaignId: null }, { $set: {
+                availableAt: contentEventAvailableAt(parentSeries.publishedAt, season.publishedAt), nextAttemptAt: new Date(), errorCode: null, leaseId: null, leaseExpiresAt: null,
+              } }, { session });
+            }
+          });
+        } finally { await session.endSession(); }
+      } else await season.save();
       notifyContentChanged();
 
       const diff = diffFields(before, {
@@ -1180,6 +1300,7 @@ export async function PATCH(req: Request) {
         price: season.price,
         currency: season.currency,
         releaseStatus: season.releaseStatus,
+        publishedAt: season.publishedAt,
       });
       await writeAudit({
         adminUserId: admin.userId,
@@ -1204,6 +1325,10 @@ export async function PATCH(req: Request) {
         return jsonError('معرّف الحلقة غير صالح');
       const episode = await Episode.findById(episodeId);
       if (!episode) return jsonError('الحلقة غير موجودة', 404);
+      const parentSeries = await Series.findById(episode.seriesId).select('_id publishedAt').lean<any>();
+      const parentSeason = await Season.findById(episode.seasonId).select('_id seriesId seasonNumber publishedAt releaseStatus').lean<any>();
+      const hadAudio = Boolean(episode.audioStorageKey || episode.audioPublicUrl);
+      const wasPlayable = Boolean(hadAudio && isContentPlayable({ series: parentSeries, season: parentSeason, episode }));
 
       const before = {
         episodeNumber: episode.episodeNumber,
@@ -1368,8 +1493,24 @@ export async function PATCH(req: Request) {
       for (const [key, value] of Object.entries(updates)) {
         (episode as any)[key] = value;
       }
-
-      await episode.save();
+      const hasAudio = Boolean(episode.audioStorageKey || episode.audioPublicUrl);
+      const playableNow = Boolean(hasAudio && isContentPlayable({ series: parentSeries, season: parentSeason, episode }));
+      const scheduledPublication = Boolean(body.publishDate !== undefined && hasAudio
+        && episode.publishDate && new Date(episode.publishDate).getTime() > Date.now());
+      const mediaBecameAvailable = Boolean(!hadAudio && hasAudio);
+      const shouldEnqueueEvent = !wasPlayable && (playableNow || scheduledPublication || mediaBecameAvailable);
+      if (shouldEnqueueEvent && (!parentSeries || !parentSeason))
+        return jsonError('لا يمكن نشر الحلقة قبل استعادة المسلسل والموسم المرتبطين بها', 409);
+      if (shouldEnqueueEvent) {
+        await ContentNotificationEvent.init();
+        const session = await conn.startSession();
+        try {
+          await session.withTransaction(async () => {
+            await episode.save({ session });
+            await enqueueContentEvent(session, 'EPISODE_PUBLISHED', { entityId: episode._id, seriesId: episode.seriesId, seasonId: episode.seasonId, episodeId: episode._id }, contentEventAvailableAt(parentSeries.publishedAt, parentSeason.publishedAt, episode.publishDate));
+          });
+        } finally { await session.endSession(); }
+      } else await episode.save();
       notifyContentChanged();
 
       if (updates.durationMs !== undefined) {

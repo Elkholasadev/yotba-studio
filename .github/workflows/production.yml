@@ -1,0 +1,47 @@
+name: Studio checks and production deployment
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npx next typegen
+      - run: npx tsc --noEmit
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: yotba-studio-production
+      cancel-in-progress: false
+    env:
+      VERCEL_ORG_ID: team_pCqNNmAtwP2pRl3tgKMHuyLU
+      VERCEL_PROJECT_ID: prj_IT2MaksIvwvcKS64fyhNTIAUdiDI
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Deploy validated source to the existing Studio project
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_DEPLOY_TOKEN }}
+        run: |
+          latest=$(git ls-remote origin refs/heads/main | cut -f1)
+          test -n "$latest" || { echo 'Cannot verify the current main commit'; exit 1; }
+          if [ "$latest" != "$GITHUB_SHA" ]; then echo 'A newer main commit supersedes this deployment'; exit 0; fi
+          test -n "$VERCEL_TOKEN" || { echo 'Missing project-scoped VERCEL_DEPLOY_TOKEN'; exit 1; }
+          npx --yes vercel@60.1.3 deploy --yes --prod --archive=tgz --token "$VERCEL_TOKEN"

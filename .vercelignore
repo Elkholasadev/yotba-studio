@@ -1,0 +1,12 @@
+# Deploy application source; credentials and local diagnostics stay on the device.
+.env*
+.git/
+.github/
+.next/
+.vercel/
+node_modules/
+tmp/
+*.pem
+*.key
+*.tsbuildinfo
+npm-debug.log*

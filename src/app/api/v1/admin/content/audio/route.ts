@@ -7,7 +7,10 @@
 import { isValidObjectId } from 'mongoose';
 import { getCurrentAdmin } from '@/lib/auth';
 import { connectDB } from '@/lib/db/connect';
-import { Episode } from '@/lib/db/models';
+import { Episode, Season, Series } from '@/lib/db/models';
+import { ContentNotificationEvent } from '@/lib/notifications/content-event-model';
+import { enqueueContentEvent } from '@/lib/notifications/content-event-write';
+import { contentEventAvailableAt } from '@/lib/notifications/content-event-policy';
 import { StorageService, getLegacyMultipartUploadPolicy } from '@/lib/storage';
 import { jsonOk, jsonError, writeAudit } from '@/lib/admin/content-api';
 import {
@@ -83,6 +86,11 @@ export async function POST(req: Request) {
 
   const episode = await Episode.findById(episodeId);
   if (!episode) return jsonError('الحلقة غير موجودة', 404);
+  const hadAudio = Boolean(episode.audioStorageKey || episode.audioPublicUrl);
+  const [series, season] = await Promise.all([
+    Series.findById(episode.seriesId).select('_id publishedAt').lean<any>(),
+    Season.findById(episode.seasonId).select('_id seriesId publishedAt releaseStatus').lean<any>(),
+  ]);
 
   // مفتاح حتمي آمن: episodes/<ObjectId>/audio.<ext> — لا مسار من المستخدم
   const storageKey = `episodes/${episodeId}/audio.${extension}`;
@@ -104,7 +112,16 @@ export async function POST(req: Request) {
   // الصوت المدفوع يبقى محمياً: نعتمد المفتاح والبث الموقع، لا رابط عام دائم
   episode.audioStorageKey = storageKey;
   episode.audioPublicUrl = undefined;
-  await episode.save();
+  if (!hadAudio && series && season) {
+    await ContentNotificationEvent.init();
+    const session = await conn.startSession();
+    try {
+      await session.withTransaction(async () => {
+        await episode.save({ session });
+        await enqueueContentEvent(session, 'EPISODE_PUBLISHED', { entityId: episode._id, seriesId: episode.seriesId, seasonId: episode.seasonId, episodeId: episode._id }, contentEventAvailableAt(series.publishedAt, season.publishedAt, episode.publishDate));
+      });
+    } finally { await session.endSession(); }
+  } else await episode.save();
 
   await writeAudit({
     adminUserId: admin.userId,
