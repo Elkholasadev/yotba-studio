@@ -19,6 +19,10 @@ const nextConfig = {
   reactStrictMode: true,
   allowedDevOrigins: ['127.0.0.1', 'localhost'],
   images: {
+    localPatterns: [
+      { pathname: '/**', search: '' },
+      { pathname: '/branding/logo_transparent.png', search: '?v=20260927-wordmark' },
+    ],
     remotePatterns: [
       ...Array.from(remoteImageHostnames, (hostname) => ({ protocol: 'https', hostname })),
       { protocol: 'https', hostname: '*.r2.dev' },
