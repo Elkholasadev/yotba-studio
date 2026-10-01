@@ -499,6 +499,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
         await cleanupAuthorizedUpload();
       }
       setIsUploading(false);
+      setLocalPreviewUrl(null);
       setUploadError(controller.signal.aborted ? 'تم إلغاء رفع الملف' : err.message || 'حدث خطأ أثناء رفع الملف، يرجى المحاولة ثانية');
     } finally {
       setIsPreparingImage(false);
