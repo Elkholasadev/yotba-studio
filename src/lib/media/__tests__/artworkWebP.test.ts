@@ -74,7 +74,11 @@ async function main() {
   encodeHook = undefined;
   const withoutMime = new File(['png bytes'], 'poster.PNG');
   assert.equal((await prepareArtworkWebP(withoutMime)).file.type, 'image/webp');
-  assert.equal(revoked, 10, 'every opened image URL must be released');
+  for (const [name, type] of [['photo.jpg', 'image/jpeg'], ['photo.avif', 'image/avif'], ['photo.gif', 'image/gif'], ['photo.bmp', 'image/bmp'], ['photo.bmp', 'image/x-ms-bmp']]) {
+    assert.equal((await prepareArtworkWebP(new File(['image'], name, { type }))).file.type, 'image/webp');
+  }
+  await assert.rejects(prepareArtworkWebP(new File(['heic'], 'photo.heic', { type: 'image/heic' })), /HEIC/);
+  assert.equal(revoked, 15, 'every opened image URL must be released');
   console.log('Artwork WebP conversion: byte/type integrity, dimensions, reuse, failures, cancellation and cleanup passed.');
 }
 main().catch((error) => { console.error(error); process.exitCode = 1; });

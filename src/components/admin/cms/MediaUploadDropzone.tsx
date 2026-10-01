@@ -181,7 +181,9 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
       case 'poster':
       case 'hero':
       case 'image':
-        return 'image/jpeg,image/png,image/webp,image/avif';
+        return convertArtworkToWebP
+          ? 'image/jpeg,image/png,image/webp,image/avif,image/gif,image/bmp,image/x-ms-bmp,.jpg,.jpeg,.png,.webp,.avif,.gif,.bmp'
+          : 'image/jpeg,image/png,image/webp,image/avif';
       case 'audio':
       case 'trailer':
         return 'audio/mpeg,audio/mp3,audio/x-mp3,audio/mp4,audio/m4a,audio/x-m4a,audio/aac,audio/x-aac,audio/ogg,audio/vorbis,audio/x-ogg,audio/webm,audio/x-webm,audio/wav,audio/wave,audio/x-wav,audio/flac,audio/x-flac,.mp3,.m4a,.aac,.ogg,.weba,.webm,.wav,.flac';
@@ -730,7 +732,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
                 <p className="text-[11px] text-editorial-muted mt-1">
                   {category === 'audio' && 'صيغ الصوت المدعومة: MP3, WAV, M4A, FLAC — رفع مباشر إلى R2'}
                   {category === 'trailer' && 'لمحة صوتية عامة وآمنة من الحرق: MP3, WAV, M4A, FLAC — رفع مباشر إلى R2'}
-                  {category === 'poster' && 'صيغ البوستر المدعومة: JPG, PNG, WEBP, AVIF — رفع مباشر إلى R2'}
+                  {category === 'poster' && (convertArtworkToWebP ? 'صيغ البوستر المدعومة: JPG, PNG, WEBP, AVIF, GIF, BMP — تحويل تلقائي إلى WebP' : 'صيغ البوستر المدعومة: JPG, PNG, WEBP, AVIF — رفع مباشر إلى R2')}
                   {category === 'hero' && 'غلاف هيرو عريض سينمائي: 16:9 أو 21:9 بدقة عالية — رفع مباشر إلى R2'}
                   {category === 'video' && 'مقاطع فيديو ترويجية قصيرة: MP4, WEBM — رفع مباشر إلى R2'}
                   {category === 'transcript' && 'ملفات نصوص متزامنة: SRT أو WebVTT أو JSON'}
@@ -745,7 +747,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
         <p className="text-[11px] text-editorial-muted" role="status">
           {artworkInfo
             ? `WebP · الأصل ${(artworkInfo.originalBytes / 1024).toFixed(0)} كيلوبايت · بعد التجهيز ${(artworkInfo.file.size / 1024).toFixed(0)} كيلوبايت · ${artworkInfo.width} × ${artworkInfo.height}`
-            : 'تُحوّل الصورة تلقائيًا إلى WebP قبل الرفع، مع الحفاظ على الأبعاد والشفافية.'}
+            : 'JPG، PNG، WebP، AVIF، GIF، BMP تُجهّز كصورة WebP ثابتة قبل الرفع، بنفس الأبعاد والشفافية.'}
         </p>
       )}
 

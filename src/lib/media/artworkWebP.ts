@@ -26,11 +26,11 @@ export async function prepareArtworkWebP(file: File, signal?: AbortSignal): Prom
   if (!file.size) throw new Error('الملف المختار فارغ (0 بايت)');
   if (file.size > MAX_SOURCE_BYTES) throw new Error('الصورة أكبر من 32 ميجابايت؛ صغّرها قبل الرفع.');
   const extension = file.name.split('.').pop()?.toLowerCase() || '';
-  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/avif'];
+  const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/avif', 'image/gif', 'image/bmp', 'image/x-ms-bmp'];
   const genericType = !file.type || file.type === 'application/octet-stream';
   if ((!genericType && !allowedTypes.includes(file.type.toLowerCase())) ||
-      (genericType && !['jpg', 'jpeg', 'png', 'webp', 'avif'].includes(extension))) {
-    throw new Error('اختر صورة JPG أو PNG أو WebP أو AVIF.');
+      (genericType && !['jpg', 'jpeg', 'png', 'webp', 'avif', 'gif', 'bmp'].includes(extension))) {
+    throw new Error('اختر صورة JPG أو PNG أو WebP أو AVIF أو GIF أو BMP. صيغة HEIC/TIFF تحتاج تحويلًا إلى إحدى هذه الصيغ أولًا.');
   }
 
   const url = URL.createObjectURL(file);
@@ -75,7 +75,7 @@ export async function prepareArtworkWebP(file: File, signal?: AbortSignal): Prom
     canvas.height = height;
     const context = canvas.getContext('2d');
     if (!context) throw new Error('تعذر تجهيز الصورة في هذا المتصفح.');
-    // Keep dimensions/aspect ratio and alpha; no crop, upscale, or background fill.
+    // Artwork is static: animated inputs become one still image. Preserve aspect/alpha.
     context.drawImage(image, 0, 0, width, height);
     const blob = await new Promise<Blob | null>((resolve) => canvas!.toBlob(resolve, 'image/webp', ARTWORK_WEBP_QUALITY));
     checkAbort(signal);
