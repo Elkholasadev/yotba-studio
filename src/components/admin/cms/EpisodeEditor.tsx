@@ -325,6 +325,7 @@ export const EpisodeEditor: React.FC<EpisodeEditorProps> = ({
             <MediaUploadDropzone
               label="صورة مخصصة للحلقة (اختياري)"
               category="image"
+              convertArtworkToWebP
               value={form.artworkOverride}
               onChange={(url) => setField('artworkOverride', url)}
               error={errors.artworkOverride}

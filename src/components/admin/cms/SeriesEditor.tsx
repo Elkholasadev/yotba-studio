@@ -362,6 +362,7 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({
             <MediaUploadDropzone
               label="صورة الغلاف (بوستر المسلسل)"
               category="poster"
+              convertArtworkToWebP
               value={form.posterUrl}
               onChange={(url) => setField('posterUrl', url)}
               error={errors.posterUrl}
@@ -371,6 +372,7 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({
             <MediaUploadDropzone
               label="صورة الواجهة الرئيسية (Hero Artwork)"
               category="hero"
+              convertArtworkToWebP
               value={form.heroArtworkUrl}
               onChange={(url) => setField('heroArtworkUrl', url)}
               error={errors.heroArtworkUrl}

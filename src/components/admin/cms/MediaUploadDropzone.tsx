@@ -7,6 +7,7 @@
 // ============================================================
 
 import React, { useState, useRef, DragEvent, ChangeEvent, useEffect } from 'react';
+import { prepareArtworkWebP, type PreparedArtwork } from '@/lib/media/artworkWebP';
 import {
   Upload,
   X,
@@ -29,6 +30,8 @@ export type MediaCategory = 'poster' | 'hero' | 'image' | 'audio' | 'trailer' | 
 interface MediaUploadDropzoneProps {
   label: string;
   category: MediaCategory;
+  /** Only series poster/hero and episode artwork opt in; other uploads stay unchanged. */
+  convertArtworkToWebP?: boolean;
   value: string;
   /** Persisted storage key (important for protected audio with no public URL). */
   storageKey?: string;
@@ -110,6 +113,7 @@ function parseSubtitleFileLocally(content: string, fileName: string): any[] {
 export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
   label,
   category,
+  convertArtworkToWebP = false,
   value,
   storageKey,
   onChange,
@@ -126,6 +130,10 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [lastUploadedFile, setLastUploadedFile] = useState<File | null>(null);
   const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
+  const [isPreparingImage, setIsPreparingImage] = useState(false);
+  const [artworkInfo, setArtworkInfo] = useState<PreparedArtwork | null>(null);
+  const preparedArtworkRef = useRef<{ source: File; result: PreparedArtwork } | null>(null);
+  const uploadControllerRef = useRef<AbortController | null>(null);
 
   // حالة المعاينة المباشرة
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
@@ -135,16 +143,17 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
   const activeXhrRef = useRef<XMLHttpRequest | null>(null);
 
   const abortUpload = () => {
+    uploadControllerRef.current?.abort();
     if (activeXhrRef.current) {
       activeXhrRef.current.abort();
       activeXhrRef.current = null;
     }
-    setIsUploading(false);
-    setUploadPercent(0);
+    // Keep the field busy until the pending conversion/request settles.
   };
 
   useEffect(() => {
     return () => {
+      uploadControllerRef.current?.abort();
       if (activeXhrRef.current) {
         activeXhrRef.current.abort();
         activeXhrRef.current = null;
@@ -212,7 +221,9 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
   };
 
   // رفع الملف المباشر إلى Cloudflare R2
-  const uploadFile = async (file: File) => {
+  const uploadFile = async (sourceFile: File) => {
+    if (uploadControllerRef.current) return;
+    let file = sourceFile;
     setLastUploadedFile(file);
     setUploadError(null);
 
@@ -250,34 +261,47 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
       json: 'application/json',
     };
 
-    const effectiveFileType =
+    let effectiveFileType =
       file.type && file.type !== 'application/octet-stream'
         ? file.type
         : extMimeMap[ext] || file.type || 'application/octet-stream';
 
     setIsUploading(true);
     setUploadPercent(0);
-
-    const previewBlob = URL.createObjectURL(file);
-    setLocalPreviewUrl(previewBlob);
-
-    if (category === 'audio' || category === 'trailer') {
-      try {
-        const tempAudio = new Audio(previewBlob);
-        tempAudio.onloadedmetadata = () => {
-          if (Number.isFinite(tempAudio.duration) && tempAudio.duration > 0) {
-            const dur = Math.round(tempAudio.duration);
-            const m = Math.floor(dur / 60);
-            const s = dur % 60;
-            setAudioDuration(`${m}:${s.toString().padStart(2, '0')}`);
-            onDurationDetected?.(dur);
-          }
-        };
-      } catch {}
-    }
+    setArtworkInfo(null);
+    const controller = new AbortController();
+    uploadControllerRef.current = controller;
 
     let cleanupAuthorizedUpload: (() => Promise<void>) | null = null;
     try {
+      if (convertArtworkToWebP && ['poster', 'hero', 'image'].includes(category)) {
+        setIsPreparingImage(true);
+        const cached = preparedArtworkRef.current;
+        const prepared = cached?.source === sourceFile
+          ? cached.result : await prepareArtworkWebP(sourceFile, controller.signal);
+        preparedArtworkRef.current = { source: sourceFile, result: prepared };
+        file = prepared.file;
+        effectiveFileType = file.type;
+        setArtworkInfo(prepared);
+        setIsPreparingImage(false);
+      }
+      controller.signal.throwIfAborted();
+      const previewBlob = URL.createObjectURL(file);
+      setLocalPreviewUrl(previewBlob);
+      if (category === 'audio' || category === 'trailer') {
+        try {
+          const tempAudio = new Audio(previewBlob);
+          tempAudio.onloadedmetadata = () => {
+            if (Number.isFinite(tempAudio.duration) && tempAudio.duration > 0) {
+              const dur = Math.round(tempAudio.duration);
+              const m = Math.floor(dur / 60);
+              const s = dur % 60;
+              setAudioDuration(`${m}:${s.toString().padStart(2, '0')}`);
+              onDurationDetected?.(dur);
+            }
+          };
+        } catch {}
+      }
       // 1. إذا كان الملف نصاً متزامناً، نقوم بتحليله محلياً فوراً لمنح تجربة مستخدم سريعة جداً
       if (category === 'transcript') {
         const textContent = await file.text();
@@ -290,6 +314,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
       // 2. طلب ترخيص الرفع الآمن المباشر من الـ Backend
       const authRes = await fetch('/api/v1/admin/upload/authorize', {
         method: 'POST',
+        signal: controller.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fileName: file.name,
@@ -300,6 +325,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
       });
 
       const authData = await authRes.json();
+      controller.signal.throwIfAborted();
       if (!authRes.ok || !authData.success) {
         throw new Error(authData.error || 'فشل الحصول على ترخيص رفع الملف');
       }
@@ -333,6 +359,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
         let directUploadError: Error | null = null;
         try {
           await new Promise<void>((resolve, reject) => {
+            controller.signal.throwIfAborted();
             const xhr = new XMLHttpRequest();
             activeXhrRef.current = xhr;
             xhr.open('PUT', authData.uploadUrl);
@@ -381,6 +408,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
         // 4. اعتماد وتوثيق الملف المرفوع في الخادم - إرسال تذكرة التفويض الموقعة للتحقق الصارم
         const finalizeRes = await fetch('/api/v1/admin/upload/finalize', {
           method: 'POST',
+          signal: controller.signal,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             storageKey: authorizedStorageKey,
@@ -412,6 +440,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
             : new File([file], file.name, { type: effectiveFileType });
 
         await new Promise<void>((resolve, reject) => {
+          controller.signal.throwIfAborted();
           const formData = new FormData();
           formData.append('file', fileToSend);
           formData.append('category', category);
@@ -468,8 +497,11 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
         await cleanupAuthorizedUpload();
       }
       setIsUploading(false);
-      setUploadError(err.message || 'حدث خطأ أثناء رفع الملف، يرجى المحاولة ثانية');
+      setUploadError(controller.signal.aborted ? 'تم إلغاء رفع الملف' : err.message || 'حدث خطأ أثناء رفع الملف، يرجى المحاولة ثانية');
     } finally {
+      setIsPreparingImage(false);
+      setIsUploading(false);
+      uploadControllerRef.current = null;
       activeXhrRef.current = null;
     }
   };
@@ -499,6 +531,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
     if (e.target.files && e.target.files.length > 0) {
       uploadFile(e.target.files[0]);
     }
+    e.target.value = '';
   };
 
   const handleDeleteMedia = () => {
@@ -507,6 +540,9 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
       setIsPlayingAudio(false);
     }
     setLocalPreviewUrl(null);
+    setArtworkInfo(null);
+    setLastUploadedFile(null);
+    preparedArtworkRef.current = null;
     setAudioDuration(null);
     onChange('');
     if (onStorageKeyChange) onStorageKeyChange('');
@@ -525,7 +561,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
         <label className="text-xs text-editorial-secondary font-semibold block">
           {label} {required && <span className="text-crimson">*</span>}
         </label>
-        {hasMedia && (
+        {Boolean(value || storageKey) && !isUploading && !uploadError && (
           <span className="text-[11px] text-emerald-400 font-medium flex items-center gap-1">
             <Check size={12} />
             <span>ملف مرفوع ومحفوظ</span>
@@ -654,10 +690,10 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
               </div>
               <div>
                 <p className="text-xs text-editorial-ivory font-bold">
-                  جاري الرفع المباشر إلى المنصة... {uploadPercent}%
+                  {isPreparingImage ? 'جاري تجهيز الصورة بصيغة WebP...' : `جاري الرفع المباشر إلى المنصة... ${uploadPercent}%`}
                 </p>
                 <p className="text-[11px] text-editorial-muted mt-0.5">
-                  يتم نقل الملف مباشرة إلى سحابة التخزين المؤمنة
+                  {isPreparingImage ? 'نحافظ على أبعاد الصورة والشفافية قبل الرفع' : 'يتم نقل الملف مباشرة إلى سحابة التخزين المؤمنة'}
                 </p>
               </div>
               {/* شريط التقدم الحي */}
@@ -703,6 +739,14 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
             </div>
           )}
         </div>
+      )}
+
+      {convertArtworkToWebP && !uploadError && (
+        <p className="text-[11px] text-editorial-muted" role="status">
+          {artworkInfo
+            ? `WebP · الأصل ${(artworkInfo.originalBytes / 1024).toFixed(0)} كيلوبايت · بعد التجهيز ${(artworkInfo.file.size / 1024).toFixed(0)} كيلوبايت · ${artworkInfo.width} × ${artworkInfo.height}`
+            : 'تُحوّل الصورة تلقائيًا إلى WebP قبل الرفع، مع الحفاظ على الأبعاد والشفافية.'}
+        </p>
       )}
 
       {/* تنبيه الخطأ وزر إعادة المحاولة */}
