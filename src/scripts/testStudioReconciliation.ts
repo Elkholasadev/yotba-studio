@@ -1079,6 +1079,8 @@ async function runTests() {
     (mongoose as any).connect = async (_uri: string, options: any) => {
       connectCalls++;
       assert.equal(options.maxPoolSize, 5);
+      assert.equal(options.autoIndex, false, 'Runtime must not enqueue schema index builds on the request pool');
+      assert.equal(options.autoCreate, false, 'Runtime must not cache a failed automatic collection initialization');
       assert.equal(options.minPoolSize, 0);
       assert.equal(options.maxIdleTimeMS, 60000);
       assert.equal(options.maxConnecting, 1);

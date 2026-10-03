@@ -921,6 +921,9 @@ export async function POST(req: Request) {
       return jsonError('قيمة مكررة: يوجد عنصر بنفس المعرفات المميزة', 409);
     }
     console.error('Admin create content error:', error);
+    if (['MongoWaitQueueTimeoutError', 'MongoServerSelectionError', 'MongoNetworkError', 'MongoNetworkTimeoutError'].includes(error?.name)) {
+      return jsonError('الاتصال بقاعدة البيانات مشغول مؤقتاً. بيانات النموذج ما زالت موجودة؛ حاول الحفظ مرة أخرى بعد لحظات.', 503);
+    }
     return jsonError('فشل إنشاء العنصر', 500);
   }
 }

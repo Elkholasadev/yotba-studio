@@ -54,6 +54,11 @@ export async function connectDB(): Promise<typeof mongoose | null> {
   if (!cache.promise) {
     const opts = {
       bufferCommands: false,
+      // Index/collection provisioning is an explicit maintenance operation.
+      // Starting it for every serverless instance can exhaust this small pool;
+      // Model.init() then caches its rejected promise for the instance lifetime.
+      autoIndex: false,
+      autoCreate: false,
       // Pool limits apply per instance, not across the whole Vercel project.
       appName: 'yotba-studio',
       maxPoolSize: 5,

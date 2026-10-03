@@ -228,32 +228,32 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({
       }
 
       let createdSeriesId: string | undefined;
+      let seasonError: string | undefined;
       if (!series && res.data && res.data.id) {
         createdSeriesId = res.data.id;
         if (autoCreateSeason1) {
-          try {
-            await adminApi<{ success: boolean }>('/api/v1/admin/content', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                entity: 'season',
-                seriesId: createdSeriesId,
-                seasonNumber: 1,
-                title: 'الموسم الأول',
-                price: 0.5,
-                releaseStatus: 'AVAILABLE',
-              }),
-            });
-          } catch (e) {
-            console.error('Auto create season 1 error:', e);
-          }
+          const seasonResult = await adminApi<{ success: boolean }>('/api/v1/admin/content', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              entity: 'season',
+              seriesId: createdSeriesId,
+              seasonNumber: 1,
+              title: 'الموسم الأول',
+              price: 0.5,
+              releaseStatus: 'AVAILABLE',
+            }),
+          });
+          if (!seasonResult.ok) seasonError = seasonResult.error;
         }
       }
 
       await onSaved(createdSeriesId);
       showNotice(
-        'success',
-        series
+        seasonError ? 'error' : 'success',
+        seasonError
+          ? `تم إنشاء المسلسل، لكن لم يتم إنشاء الموسم الأول: ${seasonError}. يمكنك إضافته من إدارة العمل.`
+          : series
           ? 'تم حفظ تعديلات المسلسل بنجاح'
           : autoCreateSeason1
             ? 'تم إنشاء المسلسل والموسم الأول بنجاح! يمكنك الآن إضافة الحلقات مباشرة.'
